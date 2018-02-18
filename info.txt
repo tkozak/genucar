@@ -1,0 +1,8 @@
+TWI cable connecting motor shield and MPU6050
+Motor shield side  
+top   	     		   
+SDA - green
+SCL - yellow
+5V  - red
+GND - orange
+bottom
