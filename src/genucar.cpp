@@ -7,15 +7,10 @@
 #include "CommandParser.h"
 
 const int cmdListSize=5;
-const String cmdList[]={"stop","drive","pclr","prep", "mpuinit"};
+const String cmdList[]={"stop", "drive", "pclr", "prep", "mpuinit"};
 const unsigned int cmdRequiredArgs[]={0, 0, 0, 1, 0};
 
-// initialize the library by associating any needed LCD interface pin
-// with the arduino pin number it is connected to
-const int rs = 13, en = 10;
-const int d4 = 4, d5 = 5, d6 = 7, d7 = 8;
 const int mpu_int = 2;
-LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 CommandParser cmdParser = CommandParser(Serial, '\n', ' ');
 
 MPU6050 mpu;
@@ -28,16 +23,20 @@ const uint16_t fifoCopy = 512;  // when to copy data from fifo (half of buffer s
 uint8_t packetBuffer[64]; // FIFO packet storage buffer
 
 // orientation/motion vars
-Quaternion q;           // [w, x, y, z]         quaternion container
-VectorInt16 aa;         // [x, y, z]            accel sensor measurements
-VectorInt16 aaReal;     // [x, y, z]            gravity-free accel sensor measurements
-VectorInt16 aaWorld;    // [x, y, z]            world-frame accel sensor measurements
+short quat[4];    // [w, x, y, z]         quaternion container
+short accel[3];  // [x, y, z]            accel sensor measurements
+short rate[3];         // gyro rate measurement
 VectorFloat gravity;    // [x, y, z]            gravity vector
 float euler[3];         // [psi, theta, phi]    Euler angle container
 float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
 
-unsigned long dispT0, timems;
-const unsigned long dispInterval=100;
+const size_t telemetrySize = 20;
+byte telemetry[telemetrySize];
+
+unsigned long sendT0, timems;
+const unsigned long sendInterval=100;
+
+
 
 // ================================================================
 // ===               INTERRUPT DETECTION ROUTINE                ===
@@ -60,12 +59,14 @@ void dmpInterrupt() {
     //    Serial.print("Data ready, FIFO count: ");
     //    Serial.println(fifoCount);
         // wait until more data i sin the FIFO buffer
-        if (fifoCount >= fifoCopy) {          
+        if (fifoCount >= fifoCopy) {
           // read a packet from FIFO
           while (fifoCount >= packetSize) {
             mpu.getFIFOBytes(packetBuffer, packetSize);
             fifoCount -= packetSize;
-            mpu.dmpGetQuaternion(&q, packetBuffer);
+            mpu.dmpGetQuaternion(quat, packetBuffer);
+            mpu.dmpGetAccel(accel, packetBuffer);
+            mpu.dmpGetGyro(rate, packetBuffer);
           }
         }
     }
@@ -86,16 +87,10 @@ void executeCommand(String cmd, unsigned int numArgs, int args[]) {
 
   switch (cmdIx) {
     case(0): // stop
-      lcd.setCursor(0, 0);
-      lcd.print("stop            ");
       break;
     case(1): // drive
-      lcd.setCursor(0, 0);
-      lcd.print("drive           ");
       break;
     case(4): //mpuinit
-      lcd.setCursor(0, 0);
-      lcd.print("mpuinit         ");
       /*
       Wire.beginTransmission(0x68);
       Wire.write(0x6B);
@@ -114,16 +109,16 @@ void executeCommand(String cmd, unsigned int numArgs, int args[]) {
       Serial.println(address);
       break;
   }
+}
 
+void writeTelemetry() {
+  memcpy(&telemetry[0], &rate, 6);
+  memcpy(&telemetry[6], &accel, 6);
+  memcpy(&telemetry[12], &accel, 8);
 }
 
 
 void setup() {
-
-  // set up the LCD's number of columns and rows:
-  lcd.begin(16, 2);
-  // Print a message to the LCD.
-  lcd.print("Ready");
 
   Serial.begin(115200);
 
@@ -180,7 +175,7 @@ void setup() {
   }
 
   //miliseconds counter reset
-  dispT0 = 0;
+  sendT0 = 0;
 
 }
 
@@ -194,16 +189,9 @@ void loop() {
   }
 
   timems = millis();
-  if (timems - dispT0 >= dispInterval) {
-    dispT0 = timems;
-    lcd.setCursor(0,0);
-    lcd.print(q.w);
-    lcd.print(":");
-    lcd.print(q.x);
-    lcd.setCursor(0,1);
-    lcd.print(q.y);
-    lcd.print(",");
-    lcd.print(q.z);
+  if (timems - sendT0 >= sendInterval) {
+    sendT0 = timems;
+    Serial.write(telemetry,telemetrySize);
   }
 
 }
